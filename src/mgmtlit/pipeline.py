@@ -45,6 +45,7 @@ class RunConfig:
     claude_command: str = "claude"
     claude_model: str = "sonnet"
     resume: bool = True
+    fail_on_llm_fallback: bool = True
 
 
 PHASES = [
@@ -147,6 +148,16 @@ def run_review(config: RunConfig) -> Path:
     current = PHASES[4]
     _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Synthesis outline complete.")
 
+    if config.fail_on_llm_fallback and config.llm_backend != "none":
+        failed_planner = _event_status(state, "literature-review-planner") == "fallback"
+        failed_synth = _event_status(state, "synthesis-planner") == "fallback"
+        if failed_planner and failed_synth:
+            dump_json(review_dir / "agent_trace.json", [e.as_dict() for e in state.events])
+            raise RuntimeError(
+                "LLM backend failed for both planning and synthesis (see agent_trace.json). "
+                "Fix API key/quota or rerun with --fail-on-llm-fallback false to allow deterministic fallback."
+            )
+
     SynthesisWriterAgent().run(state, backend)
     for section in state.outline.sections:
         text = state.section_text.get(section.index, "").strip()
@@ -183,3 +194,10 @@ def _write_progress(path: Path, topic: str, completed: list[str], current: str, 
         render_task_progress(topic=topic, phases=PHASES, completed=completed, current=current, note=note),
         encoding="utf-8",
     )
+
+
+def _event_status(state: AgentState, agent_name: str) -> str | None:
+    for event in state.events:
+        if event.agent == agent_name:
+            return event.status
+    return None

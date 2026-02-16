@@ -35,6 +35,10 @@ def review(
     claude_model: str | None = typer.Option(None, help="Claude Code model override"),
     claude_command: str | None = typer.Option(None, help="Claude Code executable (default: claude)"),
     resume: bool = typer.Option(True, help="Resume if final artifacts already exist"),
+    fail_on_llm_fallback: bool = typer.Option(
+        True,
+        help="Fail fast if LLM planning+synthesis both fall back to deterministic mode",
+    ),
 ) -> None:
     env = load_env()
     config = RunConfig(
@@ -55,6 +59,7 @@ def review(
         claude_model=claude_model or env.claude_model,
         claude_command=claude_command or env.claude_command,
         resume=resume,
+        fail_on_llm_fallback=fail_on_llm_fallback,
     )
 
     out = run_review(config)

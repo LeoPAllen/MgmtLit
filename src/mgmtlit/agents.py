@@ -205,6 +205,7 @@ class DomainResearchAgent:
             CrossrefSource(),
             SemanticScholarSource(api_key=state.inputs.semantic_scholar_api_key),
         ]
+        topic_terms = _topic_anchor_terms(state.inputs.topic, state.inputs.description, state.plan.keywords)
         per_domain_budget = max(15, state.inputs.max_papers // max(len(state.domains), 1))
         all_raw: list[Paper] = []
         retrieval_log: dict[str, dict[str, int]] = {}
@@ -224,6 +225,8 @@ class DomainResearchAgent:
                     )
                     cleaned = [_sanitize_paper(p) for p in papers]
                     cleaned = [p for p in cleaned if _looks_sane_paper(p)]
+                    topical = [p for p in cleaned if _looks_topic_relevant(p, topic_terms)]
+                    cleaned = topical if len(topical) >= max(5, len(cleaned) // 3) else cleaned
                     domain_raw.extend(cleaned)
                     source_counts[source.name] = len(papers)
                 except Exception:
@@ -636,6 +639,47 @@ def _looks_sane_paper(paper: Paper) -> bool:
     if title.count("http") > 1:
         return False
     return True
+
+
+def _looks_topic_relevant(paper: Paper, anchor_terms: list[str]) -> bool:
+    if not anchor_terms:
+        return True
+    text = f"{paper.title} {paper.abstract or ''} {' '.join(paper.fields)}".lower()
+    hits = sum(1 for t in anchor_terms if t in text)
+    return hits >= 2 or (hits >= 1 and len(text) < 1400)
+
+
+def _topic_anchor_terms(topic: str, description: str, keywords: list[str]) -> list[str]:
+    stop = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "into",
+        "that",
+        "this",
+        "then",
+        "how",
+        "become",
+        "becomes",
+        "get",
+        "gets",
+        "using",
+        "used",
+        "study",
+        "research",
+        "field",
+    }
+    base = " ".join([topic, description, " ".join(keywords[:20])]).lower()
+    tokens = re.findall(r"[a-z0-9\-]{4,}", base)
+    kept: list[str] = []
+    for tok in tokens:
+        if tok in stop:
+            continue
+        if tok not in kept:
+            kept.append(tok)
+    return kept[:35]
 
 
 def _clean_text(value: str, *, limit: int) -> str:

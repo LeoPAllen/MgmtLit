@@ -60,6 +60,7 @@ Notes:
 - `GEMINI_API_KEY` is only required when `LLM_BACKEND=gemini`.
 - For `LLM_BACKEND=claude_code`, install/configure the Claude Code CLI and optionally override `CLAUDE_CODE_CMD`.
 - `OPENALEX_EMAIL` is optional but recommended by OpenAlex for polite pool usage.
+- Default behavior is fail-fast if both planner and synthesis fall back from LLM (`--fail-on-llm-fallback true`), to avoid silently producing low-quality output.
 
 ## Usage
 
@@ -69,6 +70,7 @@ mgmtlit review \
   --description "Focus on platforms, frontline work, and hybrid organizations since 2015" \
   --max-papers 80 \
   --backend openai \
+  --fail-on-llm-fallback true \
   --resume true \
   --output-dir reviews
 ```
