@@ -40,6 +40,8 @@ class RunConfig:
     llm_backend: str = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
     claude_command: str = "claude"
     claude_model: str = "sonnet"
     resume: bool = True
@@ -70,6 +72,8 @@ def run_review(config: RunConfig) -> Path:
         openai_model=config.openai_model,
         claude_command=config.claude_command,
         claude_model=config.claude_model,
+        gemini_api_key=config.gemini_api_key,
+        gemini_model=config.gemini_model,
     )
     state = AgentState(
         inputs=RunInputs(

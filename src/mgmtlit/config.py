@@ -14,6 +14,8 @@ except ImportError:
 class EnvConfig:
     openai_api_key: str | None
     openai_model: str
+    gemini_api_key: str | None
+    gemini_model: str
     llm_backend: str
     claude_model: str
     claude_command: str
@@ -26,6 +28,8 @@ def load_env() -> EnvConfig:
     return EnvConfig(
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+        gemini_api_key=os.getenv("GEMINI_API_KEY"),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
         llm_backend=os.getenv("LLM_BACKEND", "openai"),
         claude_model=os.getenv("CLAUDE_MODEL", "sonnet"),
         claude_command=os.getenv("CLAUDE_CODE_CMD", "claude"),

@@ -45,6 +45,8 @@ Create `.env`:
 ```bash
 OPENAI_API_KEY=your_key_here
 OPENAI_MODEL=gpt-5-mini
+GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemini-2.0-flash
 LLM_BACKEND=openai
 CLAUDE_MODEL=sonnet
 CLAUDE_CODE_CMD=claude
@@ -53,8 +55,9 @@ SEMANTIC_SCHOLAR_API_KEY=optional_but_recommended
 ```
 
 Notes:
-- `LLM_BACKEND` can be `openai`, `claude_code`, or `none`.
+- `LLM_BACKEND` can be `openai`, `gemini`, `claude_code`, or `none`.
 - `OPENAI_API_KEY` is only required when `LLM_BACKEND=openai`.
+- `GEMINI_API_KEY` is only required when `LLM_BACKEND=gemini`.
 - For `LLM_BACKEND=claude_code`, install/configure the Claude Code CLI and optionally override `CLAUDE_CODE_CMD`.
 - `OPENALEX_EMAIL` is optional but recommended by OpenAlex for polite pool usage.
 
@@ -93,6 +96,14 @@ mgmtlit generate-bibliography \
 Optional filters:
 
 ```bash
+mgmtlit review "IT ambidexterity and digital transformation" \
+  --from-year 2010 \
+  --to-year 2026 \
+  --backend gemini \
+  --gemini-model gemini-2.0-flash \
+  --include-term "dynamic capabilities" \
+  --include-term "organizational learning"
+
 mgmtlit review "IT ambidexterity and digital transformation" \
   --from-year 2010 \
   --to-year 2026 \

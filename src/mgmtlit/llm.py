@@ -5,6 +5,8 @@ import subprocess
 from abc import ABC, abstractmethod
 from typing import Any
 
+import httpx
+
 SYSTEM_PROMPT = (
     "You are a careful literature review assistant for management, organizations, "
     "and information systems. Never invent citations. Ground all claims in supplied abstracts."
@@ -73,6 +75,43 @@ class ClaudeCodeBackend(LLMBackend):
         return text
 
 
+class GeminiBackend(LLMBackend):
+    name = "gemini"
+
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+        self.api_key = api_key
+        self.model = model
+        self.client = httpx.Client(timeout=60.0)
+
+    def ask_text(self, payload: dict[str, Any]) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        body = {
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "Return valid JSON only when the task asks for JSON."},
+                        {"text": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                }
+            ],
+            "generationConfig": {"temperature": 0.2},
+        }
+        resp = self.client.post(url, params={"key": self.api_key}, json=body)
+        resp.raise_for_status()
+        data = resp.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            raise RuntimeError("Gemini returned no candidates.")
+        content = candidates[0].get("content") or {}
+        parts = content.get("parts") or []
+        text = "".join(str(p.get("text", "")) for p in parts if isinstance(p, dict)).strip()
+        if not text:
+            raise RuntimeError("Gemini returned empty output.")
+        return text
+
+
 class NullBackend(LLMBackend):
     name = "none"
 
@@ -87,6 +126,8 @@ def create_backend(
     openai_model: str,
     claude_command: str,
     claude_model: str,
+    gemini_api_key: str | None,
+    gemini_model: str,
 ) -> LLMBackend:
     normalized = backend_name.strip().lower()
     if normalized == "openai":
@@ -95,6 +136,10 @@ def create_backend(
         return OpenAIBackend(api_key=openai_api_key, model=openai_model)
     if normalized == "claude_code":
         return ClaudeCodeBackend(command=claude_command, model=claude_model)
+    if normalized == "gemini":
+        if not gemini_api_key:
+            return NullBackend()
+        return GeminiBackend(api_key=gemini_api_key, model=gemini_model)
     return NullBackend()
 
 
