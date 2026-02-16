@@ -3,13 +3,20 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv() -> bool:  # type: ignore[override]
+        return False
 
 
 @dataclass(slots=True)
 class EnvConfig:
     openai_api_key: str | None
     openai_model: str
+    llm_backend: str
+    claude_model: str
+    claude_command: str
     openalex_email: str | None
     semantic_scholar_api_key: str | None
 
@@ -19,6 +26,9 @@ def load_env() -> EnvConfig:
     return EnvConfig(
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+        llm_backend=os.getenv("LLM_BACKEND", "openai"),
+        claude_model=os.getenv("CLAUDE_MODEL", "sonnet"),
+        claude_command=os.getenv("CLAUDE_CODE_CMD", "claude"),
         openalex_email=os.getenv("OPENALEX_EMAIL"),
         semantic_scholar_api_key=os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
     )

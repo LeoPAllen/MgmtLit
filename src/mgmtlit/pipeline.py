@@ -3,32 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rich.console import Console
-
-from mgmtlit.llm import LLMClient
-from mgmtlit.models import Paper, QueryPlan
-from mgmtlit.sources import CrossrefSource, OpenAlexSource, SemanticScholarSource
-from mgmtlit.utils import dedupe_papers, dump_json, ensure_dir, render_bibtex, render_evidence_table, slugify
-
-console = Console()
-
-DEFAULT_BUSINESS_TERMS = [
-    "management",
-    "organization theory",
-    "information systems",
-    "digital transformation",
-    "platform ecosystem",
-    "innovation",
-    "strategy",
-    "dynamic capabilities",
-    "institutional theory",
-    "routines",
-    "organizational learning",
-    "governance",
-    "leadership",
-    "labor process",
-    "algorithmic management",
-]
+from mgmtlit.agents import (
+    AgentState,
+    DomainResearchAgent,
+    PlannerAgent,
+    RunInputs,
+    SynthesisPlannerAgent,
+    SynthesisWriterAgent,
+)
+from mgmtlit.llm import create_backend
+from mgmtlit.utils import (
+    dump_json,
+    ensure_dir,
+    render_bibtex,
+    render_evidence_table,
+    render_lit_review_plan_md,
+    render_references_markdown,
+    render_synthesis_outline_md,
+    render_task_progress,
+    slugify,
+    with_yaml_frontmatter,
+)
 
 
 @dataclass(slots=True)
@@ -42,150 +37,145 @@ class RunConfig:
     include_terms: list[str] | None = None
     openalex_email: str | None = None
     semantic_scholar_api_key: str | None = None
+    llm_backend: str = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
+    claude_command: str = "claude"
+    claude_model: str = "sonnet"
+    resume: bool = True
 
 
-def build_query_plan(config: RunConfig) -> QueryPlan:
-    seed_terms = DEFAULT_BUSINESS_TERMS + (config.include_terms or [])
-    if config.openai_api_key:
-        try:
-            llm = LLMClient(api_key=config.openai_api_key, model=config.openai_model)
-            return llm.plan_query(config.topic, config.description, seed_terms)
-        except Exception as exc:
-            console.print(f"[yellow]LLM planning failed, using fallback planner:[/yellow] {exc}")
-
-    facets = [
-        "Core construct definitions",
-        "Theoretical mechanisms and contingencies",
-        "Outcomes and performance effects",
-        "Boundary conditions and contexts",
-        "Methods and measurement patterns",
-        "Managerial and policy implications",
-    ]
-    subquestions = [
-        f"How is '{config.topic}' conceptualized across management and IS research?",
-        "What dominant theoretical lenses explain observed relationships?",
-        "What outcomes are most consistently associated with the focal construct?",
-        "Which contexts and boundary conditions moderate effects?",
-        "What methodological limitations and identification challenges persist?",
-        "What unresolved debates suggest opportunities for future studies?",
-    ]
-    keywords = list(dict.fromkeys((seed_terms + config.topic.lower().split())[:35]))
-    return QueryPlan(
-        topic=config.topic,
-        description=config.description,
-        facets=facets,
-        subquestions=subquestions,
-        keywords=keywords,
-    )
-
-
-def _score_paper(paper: Paper, plan: QueryPlan) -> float:
-    text = f"{paper.title} {(paper.abstract or '')} {' '.join(paper.fields)}".lower()
-    keyword_hits = sum(1 for kw in plan.keywords if kw.lower() in text)
-    facet_hits = sum(1 for f in plan.facets if any(t in text for t in f.lower().split()))
-    cite_score = min((paper.citation_count or 0) / 200.0, 2.0)
-    recency_boost = 0.4 if (paper.year and paper.year >= 2018) else 0.0
-    return keyword_hits * 0.9 + facet_hits * 0.35 + cite_score + recency_boost
-
-
-def retrieve_papers(config: RunConfig, plan: QueryPlan) -> list[Paper]:
-    per_source = max(20, config.max_papers // 2)
-    queries = [config.topic] + plan.keywords[:8]
-    query = " ".join(dict.fromkeys(queries))
-
-    sources = [
-        OpenAlexSource(email=config.openalex_email),
-        CrossrefSource(),
-        SemanticScholarSource(api_key=config.semantic_scholar_api_key),
-    ]
-
-    raw: list[Paper] = []
-    for source in sources:
-        try:
-            papers = source.search(
-                query,
-                from_year=config.from_year,
-                to_year=config.to_year,
-                max_results=per_source,
-            )
-            raw.extend(papers)
-            console.print(f"[green]{source.name}[/green]: retrieved {len(papers)} papers")
-        except Exception as exc:
-            console.print(f"[yellow]{source.name} failed:[/yellow] {exc}")
-
-    deduped = dedupe_papers(raw)
-    for paper in deduped:
-        paper.relevance_score = _score_paper(paper, plan)
-    deduped.sort(key=lambda p: p.relevance_score, reverse=True)
-    return deduped[: config.max_papers]
-
-
-def _fallback_review(plan: QueryPlan, papers: list[Paper]) -> str:
-    top = papers[:25]
-    intro = (
-        f"# Literature Review: {plan.topic}\n\n"
-        f"## Introduction\n"
-        f"Scope: {plan.description or plan.topic}. This draft synthesizes {len(top)} high-ranking papers "
-        "from management, organizations, and information systems databases.\n"
-    )
-
-    sections = [intro]
-    for facet in plan.facets[:6]:
-        sections.append(f"\n## {facet}\n")
-        related = [p for p in top if facet.split()[0].lower() in (p.abstract or "").lower()]
-        chosen = related[:4] if related else top[:4]
-        if not chosen:
-            sections.append("Evidence is currently sparse for this facet.\n")
-            continue
-        for paper in chosen:
-            author = paper.authors[0].split()[-1] if paper.authors else "Unknown"
-            year = paper.year or "n.d."
-            claim = (paper.abstract or "No abstract available.").replace("\n", " ")[:220]
-            sections.append(f"- ({author}, {year}) {paper.title}: {claim}\n")
-
-    sections.append("\n## Gaps and Future Research Agenda\n")
-    sections.append(
-        "Current evidence indicates conceptual fragmentation, uneven measurement quality, and limited causal identification in many studies. "
-        "Future work should combine stronger theory-to-measure alignment with multi-method designs and cross-context replication.\n"
-    )
-    sections.append("\n## Conclusion\n")
-    sections.append(
-        "The reviewed literature suggests substantive progress but persistent disagreement about mechanisms and boundary conditions. "
-        "A cumulative management science agenda should prioritize transparent designs, construct validity, and explicit competing explanations.\n"
-    )
-
-    sections.append("\n## Reference Mapping\n")
-    for paper in top:
-        sections.append(f"- {paper.title} ({paper.year or 'n.d.'})")
-    return "\n".join(sections).strip() + "\n"
-
-
-def compose_review(config: RunConfig, plan: QueryPlan, papers: list[Paper]) -> str:
-    if config.openai_api_key:
-        try:
-            llm = LLMClient(api_key=config.openai_api_key, model=config.openai_model)
-            return llm.compose_review(plan, papers)
-        except Exception as exc:
-            console.print(f"[yellow]LLM drafting failed, using fallback writer:[/yellow] {exc}")
-    return _fallback_review(plan, papers)
+PHASES = [
+    "Phase 1: Verify environment and determine execution mode",
+    "Phase 2: Structure literature review domains",
+    "Phase 3: Research domains in parallel",
+    "Phase 4: Outline synthesis review across domains",
+    "Phase 5: Write review sections in parallel",
+    "Phase 6: Assemble final review files and bibliography",
+]
 
 
 def run_review(config: RunConfig) -> Path:
     slug = slugify(config.topic)
-    out_dir = config.output_dir / slug
-    ensure_dir(out_dir)
+    review_dir = config.output_dir / slug
+    intermediate_dir = review_dir / "intermediate_files"
+    json_dir = intermediate_dir / "json"
+    ensure_dir(review_dir)
+    ensure_dir(intermediate_dir)
+    ensure_dir(json_dir)
 
-    console.print(f"[bold]Building review for:[/bold] {config.topic}")
-    plan = build_query_plan(config)
-    papers = retrieve_papers(config, plan)
-    review = compose_review(config, plan, papers)
+    backend = create_backend(
+        config.llm_backend,
+        openai_api_key=config.openai_api_key,
+        openai_model=config.openai_model,
+        claude_command=config.claude_command,
+        claude_model=config.claude_model,
+    )
+    state = AgentState(
+        inputs=RunInputs(
+            topic=config.topic,
+            description=config.description,
+            max_papers=config.max_papers,
+            from_year=config.from_year,
+            to_year=config.to_year,
+            include_terms=config.include_terms or [],
+            openalex_email=config.openalex_email,
+            semantic_scholar_api_key=config.semantic_scholar_api_key,
+        )
+    )
 
-    dump_json(out_dir / "plan.json", plan.as_dict())
-    dump_json(out_dir / "papers.json", [p.as_dict() for p in papers])
-    (out_dir / "evidence_table.md").write_text(render_evidence_table(papers), encoding="utf-8")
-    (out_dir / "review.md").write_text(review, encoding="utf-8")
-    (out_dir / "references.bib").write_text(render_bibtex(papers), encoding="utf-8")
+    completed: list[str] = []
+    current = PHASES[0]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Initializing review run.")
 
-    return out_dir
+    final_review_path = review_dir / "literature-review-final.md"
+    final_bib_path = review_dir / "literature-all.bib"
+    if config.resume and final_review_path.exists() and final_bib_path.exists():
+        completed = PHASES.copy()
+        _write_progress(
+            intermediate_dir / "task-progress.md",
+            config.topic,
+            completed,
+            "Workflow already complete.",
+            "Detected existing final artifacts and returned without overwriting.",
+        )
+        return review_dir
+
+    completed.append(PHASES[0])
+    current = PHASES[1]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Environment checks passed.")
+
+    PlannerAgent().run(state, backend)
+    if state.plan is None:
+        raise RuntimeError("Pipeline failed: planner did not produce a query plan.")
+    dump_json(review_dir / "plan.json", state.plan.as_dict())
+    dump_json(intermediate_dir / "domains.json", [d.as_dict() for d in state.domains])
+    (intermediate_dir / "lit-review-plan.md").write_text(
+        render_lit_review_plan_md(state.plan, state.domains), encoding="utf-8"
+    )
+    completed.append(PHASES[1])
+    current = PHASES[2]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Domain plan generated.")
+
+    DomainResearchAgent().run(state, backend)
+    for domain in state.domains:
+        papers = state.domain_papers.get(domain.index, [])
+        bib_name = f"literature-domain-{domain.index}.bib"
+        (intermediate_dir / bib_name).write_text(render_bibtex(papers), encoding="utf-8")
+        dump_json(
+            json_dir / f"domain-{domain.index}-papers.json",
+            [p.as_dict() for p in papers],
+        )
+    dump_json(review_dir / "papers.json", [p.as_dict() for p in state.papers])
+    (review_dir / "evidence_table.md").write_text(render_evidence_table(state.papers), encoding="utf-8")
+    completed.append(PHASES[2])
+    current = PHASES[3]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Domain research complete.")
+
+    SynthesisPlannerAgent().run(state, backend)
+    if state.outline is None:
+        raise RuntimeError("Pipeline failed: synthesis planner did not produce an outline.")
+    dump_json(intermediate_dir / "synthesis-outline.json", state.outline.as_dict())
+    (intermediate_dir / "synthesis-outline.md").write_text(
+        render_synthesis_outline_md(config.topic, state.outline), encoding="utf-8"
+    )
+    completed.append(PHASES[3])
+    current = PHASES[4]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Synthesis outline complete.")
+
+    SynthesisWriterAgent().run(state, backend)
+    for section in state.outline.sections:
+        text = state.section_text.get(section.index, "").strip()
+        if not text:
+            continue
+        (intermediate_dir / f"synthesis-section-{section.index}.md").write_text(text + "\n", encoding="utf-8")
+    completed.append(PHASES[4])
+    current = PHASES[5]
+    _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Section drafting complete.")
+
+    review_body = state.review.strip()
+    references_section = render_references_markdown(state.papers)
+    full_review = review_body + "\n\n" + references_section + "\n"
+    final_review = with_yaml_frontmatter(full_review, title=f"Literature Review: {config.topic}")
+    final_review_path.write_text(final_review, encoding="utf-8")
+    final_bib_path.write_text(render_bibtex(state.papers), encoding="utf-8")
+    (review_dir / "references.bib").write_text(render_bibtex(state.papers), encoding="utf-8")
+    (review_dir / "review.md").write_text(state.review, encoding="utf-8")
+    dump_json(review_dir / "agent_trace.json", [e.as_dict() for e in state.events])
+
+    completed.append(PHASES[5])
+    _write_progress(
+        intermediate_dir / "task-progress.md",
+        config.topic,
+        completed,
+        "Complete",
+        "Final review and bibliography assembled.",
+    )
+    return review_dir
+
+
+def _write_progress(path: Path, topic: str, completed: list[str], current: str, note: str) -> None:
+    path.write_text(
+        render_task_progress(topic=topic, phases=PHASES, completed=completed, current=current, note=note),
+        encoding="utf-8",
+    )

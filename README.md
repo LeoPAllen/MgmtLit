@@ -4,21 +4,31 @@
 
 ## What it does
 
-Given a research question, `mgmtlit` can:
+Given a research question, `mgmtlit` now runs a PhilLit-style 6-phase workflow:
 
-1. Decompose the question into search facets relevant to management/organizations/IS.
-2. Retrieve candidate papers from OpenAlex, Crossref, and Semantic Scholar.
-3. Deduplicate and score papers by relevance and citation impact.
-4. Build an evidence table with metadata and abstracts.
-5. Draft a structured literature review and export a BibTeX file.
+1. Verify run state and initialize progress tracking.
+2. Decompose the topic into domains (`literature-review-planner`).
+3. Research each domain and produce per-domain BibTeX (`domain-literature-researcher`).
+4. Build a synthesis outline (`synthesis-planner`).
+5. Draft section files (`synthesis-writer`).
+6. Assemble final review and bibliography artifacts.
 
 Outputs are written to `reviews/<slug>/`:
 
+- `literature-review-final.md`: assembled review with YAML frontmatter and references
+- `literature-all.bib`: aggregated bibliography
+- `review.md`: assembled section draft without frontmatter
 - `plan.json`: generated sub-questions and search facets
 - `papers.json`: ranked paper candidates with metadata
+- `agent_trace.json`: per-agent status + fallback information
 - `evidence_table.md`: compact evidence matrix
-- `review.md`: generated literature review draft
 - `references.bib`: BibTeX entries for included sources
+- `intermediate_files/task-progress.md`: resumable phase tracker
+- `intermediate_files/lit-review-plan.md`: domain decomposition
+- `intermediate_files/literature-domain-*.bib`: per-domain bibliographies
+- `intermediate_files/synthesis-outline.md`: section blueprint
+- `intermediate_files/synthesis-section-*.md`: drafted sections
+- `intermediate_files/json/*.json`: per-domain evidence snapshots
 
 ## Install
 
@@ -35,12 +45,17 @@ Create `.env`:
 ```bash
 OPENAI_API_KEY=your_key_here
 OPENAI_MODEL=gpt-5-mini
+LLM_BACKEND=openai
+CLAUDE_MODEL=sonnet
+CLAUDE_CODE_CMD=claude
 OPENALEX_EMAIL=you@university.edu
 SEMANTIC_SCHOLAR_API_KEY=optional_but_recommended
 ```
 
 Notes:
-- `OPENAI_API_KEY` is optional. Without it, the tool uses deterministic fallback prompts and template-based synthesis.
+- `LLM_BACKEND` can be `openai`, `claude_code`, or `none`.
+- `OPENAI_API_KEY` is only required when `LLM_BACKEND=openai`.
+- For `LLM_BACKEND=claude_code`, install/configure the Claude Code CLI and optionally override `CLAUDE_CODE_CMD`.
 - `OPENALEX_EMAIL` is optional but recommended by OpenAlex for polite pool usage.
 
 ## Usage
@@ -50,8 +65,30 @@ mgmtlit review \
   "How does algorithmic management affect worker autonomy and performance?" \
   --description "Focus on platforms, frontline work, and hybrid organizations since 2015" \
   --max-papers 80 \
+  --backend openai \
+  --resume true \
   --output-dir reviews
 ```
+
+PhilLit-style postprocessing commands:
+
+```bash
+mgmtlit assemble reviews/topic/literature-review-final.md \
+  reviews/topic/intermediate_files/synthesis-section-*.md \
+  --title "Literature Review: Topic"
+
+mgmtlit dedupe-bib reviews/topic/literature-all.bib \
+  reviews/topic/intermediate_files/literature-domain-1.bib \
+  reviews/topic/intermediate_files/literature-domain-2.bib
+
+mgmtlit normalize-headings reviews/topic/literature-review-final.md
+
+mgmtlit generate-bibliography \
+  reviews/topic/literature-review-final.md \
+  reviews/topic/literature-all.bib
+```
+
+`generate-bibliography` appends or replaces `## References` in **APA style** based on in-text citations.
 
 Optional filters:
 
@@ -59,6 +96,8 @@ Optional filters:
 mgmtlit review "IT ambidexterity and digital transformation" \
   --from-year 2010 \
   --to-year 2026 \
+  --backend claude_code \
+  --claude-model sonnet \
   --include-term "dynamic capabilities" \
   --include-term "organizational learning"
 ```
