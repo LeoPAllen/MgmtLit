@@ -1,0 +1,26 @@
+# User-generated review outputs
+reviews/
+
+# Local environment files
+.env
+.venv/
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging/build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# IDE/system files
+.DS_Store
+.vscode/
+.idea/
