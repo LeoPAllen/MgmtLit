@@ -48,7 +48,8 @@ def render_evidence_table(papers: list[Paper], limit: int = 30) -> str:
         summary = (paper.abstract or "No abstract available.").replace("\n", " ").strip()
         summary = summary[:220] + ("..." if len(summary) > 220 else "")
         year = str(paper.year) if paper.year else "-"
-        title = paper.title.replace("|", "\\|")
+        title = paper.title.replace("|", "\\|").replace("\n", " ").strip()
+        title = title[:180] + ("..." if len(title) > 180 else "")
         rows.append(f"| {idx} | {year} | {title} | {summary} |")
     return "\n".join(rows) + "\n"
 

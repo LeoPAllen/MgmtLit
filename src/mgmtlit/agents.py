@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+import re
 from typing import Any
 
 from mgmtlit.llm import LLMBackend
 from mgmtlit.models import Paper, QueryPlan
-from mgmtlit.sources import CrossrefSource, OpenAlexSource, SemanticScholarSource
 from mgmtlit.utils import dedupe_papers
 
 DEFAULT_BUSINESS_TERMS = [
@@ -198,6 +198,7 @@ class DomainResearchAgent:
         del backend
         if state.plan is None or not state.domains:
             raise RuntimeError("Planner must run before domain research.")
+        from mgmtlit.sources import CrossrefSource, OpenAlexSource, SemanticScholarSource
 
         sources = [
             OpenAlexSource(email=state.inputs.openalex_email),
@@ -221,7 +222,9 @@ class DomainResearchAgent:
                         to_year=state.inputs.to_year,
                         max_results=per_domain_budget,
                     )
-                    domain_raw.extend(papers)
+                    cleaned = [_sanitize_paper(p) for p in papers]
+                    cleaned = [p for p in cleaned if _looks_sane_paper(p)]
+                    domain_raw.extend(cleaned)
                     source_counts[source.name] = len(papers)
                 except Exception:
                     source_counts[source.name] = 0
@@ -451,8 +454,18 @@ def _parse_sections(value: Any, num_domains: int) -> list[SynthesisSection]:
 
 
 def _domain_query(topic: str, domain: DomainPlan) -> str:
-    chunks = [topic, domain.name, domain.focus] + domain.search_terms[:6]
-    return " ".join(dict.fromkeys(c for c in chunks if c))
+    chunks = [topic, domain.name] + domain.search_terms[:8]
+    text = " ".join(c for c in chunks if c)
+    tokens = re.findall(r"[a-zA-Z0-9\-]+", text.lower())
+    stop = {"the", "and", "for", "with", "from", "into", "that", "this", "then", "how"}
+    kept: list[str] = []
+    for tok in tokens:
+        if len(tok) < 3 or tok in stop:
+            continue
+        if tok not in kept:
+            kept.append(tok)
+    query = " ".join(kept[:22]).strip()
+    return query[:220]
 
 
 def _score_paper(paper: Paper, plan: QueryPlan, domain: DomainPlan | None) -> float:
@@ -578,8 +591,10 @@ def _fallback_section_text(section: SynthesisSection, papers: list[Paper], plan:
     for paper in papers[:8]:
         author = paper.authors[0].split()[-1] if paper.authors else "Unknown"
         year = paper.year or "n.d."
+        title = paper.title.replace("\n", " ").strip()
+        title = title[:180] + ("..." if len(title) > 180 else "")
         snippet = (paper.abstract or "No abstract available.").replace("\n", " ").strip()[:220]
-        lines.append(f"- ({author}, {year}) {paper.title}: {snippet}")
+        lines.append(f"- ({author}, {year}) {title}: {snippet}")
     lines.extend(
         [
             "",
@@ -594,3 +609,38 @@ def _fallback_section_text(section: SynthesisSection, papers: list[Paper], plan:
         ]
     )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _sanitize_paper(paper: Paper) -> Paper:
+    title = _clean_text(paper.title, limit=240)
+    abstract = _clean_text(paper.abstract or "", limit=2500) or None
+    authors = [_clean_text(a, limit=80) for a in paper.authors if _clean_text(a, limit=80)]
+    fields = [_clean_text(f, limit=60) for f in paper.fields if _clean_text(f, limit=60)]
+    paper.title = title or "Untitled"
+    paper.abstract = abstract
+    paper.authors = authors
+    paper.fields = fields[:8]
+    return paper
+
+
+def _looks_sane_paper(paper: Paper) -> bool:
+    title = (paper.title or "").lower()
+    if len(title) < 8:
+        return False
+    if len(title) > 260:
+        return False
+    bad_markers = ["download pdf", "view description", "creative commons license", "article:", "volume", "issue"]
+    marker_hits = sum(1 for m in bad_markers if m in title)
+    if marker_hits >= 3:
+        return False
+    if title.count("http") > 1:
+        return False
+    return True
+
+
+def _clean_text(value: str, *, limit: int) -> str:
+    text = re.sub(r"<[^>]+>", " ", value or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "..."
+    return text

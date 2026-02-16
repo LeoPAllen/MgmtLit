@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -78,10 +79,18 @@ class ClaudeCodeBackend(LLMBackend):
 class GeminiBackend(LLMBackend):
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-2.0-flash",
+        max_retries: int = 3,
+        retry_backoff_sec: float = 1.0,
+    ) -> None:
         self.api_key = api_key
         self.model = model
         self.client = httpx.Client(timeout=60.0)
+        self.max_retries = max(max_retries, 1)
+        self.retry_backoff_sec = max(retry_backoff_sec, 0.0)
 
     def ask_text(self, payload: dict[str, Any]) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
@@ -98,8 +107,29 @@ class GeminiBackend(LLMBackend):
             ],
             "generationConfig": {"temperature": 0.2},
         }
-        resp = self.client.post(url, params={"key": self.api_key}, json=body)
-        resp.raise_for_status()
+        for attempt in range(self.max_retries):
+            try:
+                resp = self.client.post(
+                    url,
+                    headers={"x-goog-api-key": self.api_key},
+                    json=body,
+                )
+                resp.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                if (
+                    exc.response.status_code == 429
+                    and attempt < self.max_retries - 1
+                ):
+                    retry_after = _parse_retry_after(exc.response)
+                    if retry_after is None:
+                        retry_after = self.retry_backoff_sec * (2**attempt)
+                    time.sleep(retry_after)
+                    continue
+                raise RuntimeError(_format_gemini_http_error(exc)) from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"Gemini request failed: {exc}") from exc
+
         data = resp.json()
         candidates = data.get("candidates") or []
         if not candidates:
@@ -157,3 +187,33 @@ def _coerce_json(text: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("Model did not return a JSON object.")
     return data
+
+
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    value = response.headers.get("retry-after")
+    if value is None:
+        return None
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        return None
+
+
+def _format_gemini_http_error(exc: httpx.HTTPStatusError) -> str:
+    status_code = exc.response.status_code
+    message = f"Gemini API request failed with HTTP {status_code}."
+    if status_code == 429:
+        message += (
+            " Rate limit or quota exceeded; check Gemini API quotas/billing "
+            "and reduce request rate."
+        )
+
+    try:
+        payload = exc.response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        error_message = payload.get("error", {}).get("message")
+        if isinstance(error_message, str) and error_message.strip():
+            message += f" Details: {error_message.strip()}"
+    return message
