@@ -7,6 +7,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from mgmtlit.models import Paper
+from mgmtlit.net import cached_get_text
 from mgmtlit.sources.base import PaperSource
 
 
@@ -18,9 +19,14 @@ class ArxivSource(PaperSource):
 
     @retry(wait=wait_exponential(multiplier=1, min=1, max=8), stop=stop_after_attempt(3))
     def _get(self, params: dict[str, str]) -> str:
-        resp = self.client.get("https://export.arxiv.org/api/query", params=params)
-        resp.raise_for_status()
-        return resp.text
+        return cached_get_text(
+            self.client,
+            "https://export.arxiv.org/api/query",
+            params=params,
+            headers=None,
+            ttl_seconds=24 * 60 * 60,
+            min_interval_sec=0.25,
+        )
 
     def search(
         self,

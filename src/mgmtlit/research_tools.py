@@ -11,7 +11,14 @@ import httpx
 
 from mgmtlit.domain_profiles import coverage_anchor_terms, query_variants, venue_boost
 from mgmtlit.models import Paper
-from mgmtlit.sources import CrossrefSource, OpenAlexSource, SemanticScholarSource
+from mgmtlit.sources import (
+    CoreSource,
+    CrossrefSource,
+    OpenAlexSource,
+    RePEcSource,
+    SSRNSource,
+    SemanticScholarSource,
+)
 from mgmtlit.sources.arxiv import ArxivSource
 from mgmtlit.utils import dedupe_papers
 
@@ -63,12 +70,50 @@ def search_crossref(
     return {"status": "ok", "source": "crossref", "query": query, "results": [paper_to_dict(p) for p in papers]}
 
 
+def search_core(
+    query: str,
+    *,
+    api_key: str | None = None,
+    from_year: int | None = None,
+    to_year: int | None = None,
+    limit: int = 25,
+) -> dict[str, Any]:
+    source = CoreSource(api_key=api_key)
+    papers = source.search(query, from_year=from_year, to_year=to_year, max_results=limit)
+    return {"status": "ok", "source": "core", "query": query, "results": [paper_to_dict(p) for p in papers]}
+
+
+def search_ssrn(
+    query: str,
+    *,
+    from_year: int | None = None,
+    to_year: int | None = None,
+    limit: int = 25,
+) -> dict[str, Any]:
+    source = SSRNSource()
+    papers = source.search(query, from_year=from_year, to_year=to_year, max_results=limit)
+    return {"status": "ok", "source": "ssrn", "query": query, "results": [paper_to_dict(p) for p in papers]}
+
+
+def search_repec(
+    query: str,
+    *,
+    from_year: int | None = None,
+    to_year: int | None = None,
+    limit: int = 25,
+) -> dict[str, Any]:
+    source = RePEcSource()
+    papers = source.search(query, from_year=from_year, to_year=to_year, max_results=limit)
+    return {"status": "ok", "source": "repec", "query": query, "results": [paper_to_dict(p) for p in papers]}
+
+
 def search_portfolio(
     topic: str,
     *,
     description: str = "",
     openalex_email: str | None = None,
     s2_api_key: str | None = None,
+    core_api_key: str | None = None,
     from_year: int | None = None,
     to_year: int | None = None,
     limit: int = 80,
@@ -79,6 +124,9 @@ def search_portfolio(
         OpenAlexSource(email=openalex_email),
         SemanticScholarSource(api_key=s2_api_key),
         CrossrefSource(),
+        CoreSource(api_key=core_api_key),
+        RePEcSource(),
+        SSRNSource(),
         ArxivSource(),
     ]
     all_papers: list[Paper] = []

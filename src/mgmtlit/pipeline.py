@@ -34,6 +34,14 @@ class RunConfig:
     include_terms: list[str] | None = None
     openalex_email: str | None = None
     semantic_scholar_api_key: str | None = None
+    core_api_key: str | None = None
+    prefer_terms: list[str] | None = None
+    avoid_terms: list[str] | None = None
+    prefer_venues: list[str] | None = None
+    avoid_venues: list[str] | None = None
+    prefer_sources: list[str] | None = None
+    avoid_sources: list[str] | None = None
+    soft_restriction_strength: float = 1.0
     llm_backend: str = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
@@ -83,6 +91,14 @@ def run_review(config: RunConfig) -> Path:
             include_terms=config.include_terms or [],
             openalex_email=config.openalex_email,
             semantic_scholar_api_key=config.semantic_scholar_api_key,
+            core_api_key=config.core_api_key,
+            prefer_terms=config.prefer_terms or [],
+            avoid_terms=config.avoid_terms or [],
+            prefer_venues=config.prefer_venues or [],
+            avoid_venues=config.avoid_venues or [],
+            prefer_sources=config.prefer_sources or [],
+            avoid_sources=config.avoid_sources or [],
+            soft_restriction_strength=config.soft_restriction_strength,
         )
     )
     engine = create_orchestration_engine(config.llm_backend)

@@ -12,10 +12,13 @@ from mgmtlit.research_tools import (
     enrich_bibliography,
     s2_citations,
     s2_recommend,
+    search_core,
     search_crossref,
     search_openalex,
     search_portfolio,
+    search_repec,
     search_semantic_scholar,
+    search_ssrn,
     verify_paper,
     write_json,
 )
@@ -51,6 +54,36 @@ def review(
         True,
         help="Fail fast if LLM planning+synthesis both fall back to deterministic mode",
     ),
+    prefer_term: list[str] = typer.Option(
+        None,
+        help="Softly prioritize papers containing these terms (repeatable)",
+    ),
+    avoid_term: list[str] = typer.Option(
+        None,
+        help="Softly de-prioritize papers containing these terms (repeatable)",
+    ),
+    prefer_venue: list[str] = typer.Option(
+        None,
+        help="Softly prioritize venues matching these substrings (repeatable)",
+    ),
+    avoid_venue: list[str] = typer.Option(
+        None,
+        help="Softly de-prioritize venues matching these substrings (repeatable)",
+    ),
+    prefer_source: list[str] = typer.Option(
+        None,
+        help="Softly prioritize source connectors, e.g. openalex, semantic_scholar, core (repeatable)",
+    ),
+    avoid_source: list[str] = typer.Option(
+        None,
+        help="Softly de-prioritize source connectors, e.g. crossref, arxiv, ssrn, repec (repeatable)",
+    ),
+    soft_restriction_strength: float = typer.Option(
+        1.0,
+        min=0.0,
+        max=3.0,
+        help="How strongly epistemic preferences affect ranking (0 disables, 1 default, 2-3 stronger)",
+    ),
 ) -> None:
     env = load_env()
     config = RunConfig(
@@ -63,6 +96,14 @@ def review(
         include_terms=include_term or [],
         openalex_email=env.openalex_email,
         semantic_scholar_api_key=env.semantic_scholar_api_key,
+        core_api_key=env.core_api_key,
+        prefer_terms=prefer_term or [],
+        avoid_terms=avoid_term or [],
+        prefer_venues=prefer_venue or [],
+        avoid_venues=avoid_venue or [],
+        prefer_sources=prefer_source or [],
+        avoid_sources=avoid_source or [],
+        soft_restriction_strength=soft_restriction_strength,
         llm_backend=backend or env.llm_backend,
         openai_api_key=env.openai_api_key,
         openai_model=env.openai_model,
@@ -183,6 +224,49 @@ def search_crossref_cmd(
     write_json(out, payload)
 
 
+@app.command("search-core")
+def search_core_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=100),
+) -> None:
+    env = load_env()
+    payload = search_core(
+        query,
+        api_key=env.core_api_key,
+        from_year=from_year,
+        to_year=to_year,
+        limit=limit,
+    )
+    write_json(out, payload)
+
+
+@app.command("search-ssrn")
+def search_ssrn_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=100),
+) -> None:
+    payload = search_ssrn(query, from_year=from_year, to_year=to_year, limit=limit)
+    write_json(out, payload)
+
+
+@app.command("search-repec")
+def search_repec_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=100),
+) -> None:
+    payload = search_repec(query, from_year=from_year, to_year=to_year, limit=limit)
+    write_json(out, payload)
+
+
 @app.command("search-portfolio")
 def search_portfolio_cmd(
     topic: str = typer.Argument(..., help="Main research topic"),
@@ -198,6 +282,7 @@ def search_portfolio_cmd(
         description=description,
         openalex_email=env.openalex_email,
         s2_api_key=env.semantic_scholar_api_key,
+        core_api_key=env.core_api_key,
         from_year=from_year,
         to_year=to_year,
         limit=limit,

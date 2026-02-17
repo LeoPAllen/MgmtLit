@@ -4,6 +4,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from mgmtlit.models import Paper
+from mgmtlit.net import cached_get_json
 from mgmtlit.sources.base import PaperSource
 
 
@@ -19,9 +20,14 @@ class OpenAlexSource(PaperSource):
         headers = {}
         if self.email:
             headers["User-Agent"] = f"mgmtlit/0.1 ({self.email})"
-        resp = self.client.get("https://api.openalex.org/works", params=params, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        return cached_get_json(
+            self.client,
+            "https://api.openalex.org/works",
+            params=params,
+            headers=headers,
+            ttl_seconds=6 * 60 * 60,
+            min_interval_sec=0.25,
+        )
 
     @staticmethod
     def _abstract_from_inverted(index: dict[str, list[int]] | None) -> str | None:

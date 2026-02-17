@@ -8,8 +8,8 @@ from mgmtlit.net import cached_get_json
 from mgmtlit.sources.base import PaperSource
 
 
-class CrossrefSource(PaperSource):
-    name = "crossref"
+class RePEcSource(PaperSource):
+    name = "repec"
 
     def __init__(self, timeout: float = 25.0) -> None:
         self.client = httpx.Client(timeout=timeout)
@@ -33,48 +33,50 @@ class CrossrefSource(PaperSource):
         to_year: int | None = None,
         max_results: int = 50,
     ) -> list[Paper]:
-        filters: list[str] = []
+        filters = ["type:posted-content"]
         if from_year:
             filters.append(f"from-pub-date:{from_year}-01-01")
         if to_year:
             filters.append(f"until-pub-date:{to_year}-12-31")
-
         params = {
-            "query": query,
+            "query.bibliographic": f"RePEc {query}",
             "rows": str(min(max_results, 100)),
+            "filter": ",".join(filters),
             "sort": "is-referenced-by-count",
             "order": "desc",
         }
-        if filters:
-            params["filter"] = ",".join(filters)
-
         payload = self._get(params)
         out: list[Paper] = []
         for item in payload.get("message", {}).get("items", []):
             title = (item.get("title") or ["Untitled"])[0]
-            author_names = []
+            url = str(item.get("URL") or "")
+            container = ((item.get("container-title") or [None])[0] or "").strip()
+            hay = f"{title} {url} {container}".lower()
+            if "repec" not in hay and "econ" not in hay and "working paper" not in hay:
+                continue
+            authors = []
             for author in item.get("author", []):
                 given = author.get("given", "").strip()
                 family = author.get("family", "").strip()
                 name = (given + " " + family).strip()
                 if name:
-                    author_names.append(name)
+                    authors.append(name)
             parts = item.get("published-print") or item.get("published-online") or {}
             date_parts = parts.get("date-parts", [[None]])
             year = date_parts[0][0] if date_parts and date_parts[0] else None
             out.append(
                 Paper(
                     source=self.name,
-                    paper_id=item.get("DOI", ""),
+                    paper_id=item.get("DOI") or url,
                     title=title,
-                    authors=author_names,
+                    authors=authors,
                     year=year,
-                    venue=(item.get("container-title") or [None])[0],
+                    venue=container or "RePEc working paper",
                     doi=item.get("DOI"),
-                    url=(item.get("URL") or None),
+                    url=url or None,
                     abstract=item.get("abstract"),
                     citation_count=item.get("is-referenced-by-count"),
-                    fields=[],
+                    fields=["working paper", "economics", "repec"],
                 )
             )
         return out

@@ -91,6 +91,14 @@ class RunInputs:
     include_terms: list[str]
     openalex_email: str | None
     semantic_scholar_api_key: str | None
+    core_api_key: str | None
+    prefer_terms: list[str]
+    avoid_terms: list[str]
+    prefer_venues: list[str]
+    avoid_venues: list[str]
+    prefer_sources: list[str]
+    avoid_sources: list[str]
+    soft_restriction_strength: float
 
 
 @dataclass(slots=True)
@@ -200,24 +208,41 @@ class DomainResearchAgent:
         del backend
         if state.plan is None or not state.domains:
             raise RuntimeError("Planner must run before domain research.")
-        from mgmtlit.sources import ArxivSource, CrossrefSource, OpenAlexSource, SemanticScholarSource
+        from mgmtlit.sources import (
+            ArxivSource,
+            CoreSource,
+            CrossrefSource,
+            OpenAlexSource,
+            RePEcSource,
+            SSRNSource,
+            SemanticScholarSource,
+        )
 
         sources = [
             OpenAlexSource(email=state.inputs.openalex_email),
             CrossrefSource(),
             SemanticScholarSource(api_key=state.inputs.semantic_scholar_api_key),
+            CoreSource(api_key=state.inputs.core_api_key),
+            RePEcSource(),
+            SSRNSource(),
             ArxivSource(),
         ]
         topic_terms = coverage_anchor_terms(
             state.inputs.topic, state.inputs.description, state.plan.keywords
         )
+        topic_terms.extend(state.inputs.prefer_terms)
+        topic_terms = list(dict.fromkeys(t.lower().strip() for t in topic_terms if t.strip()))
         per_domain_budget = max(15, state.inputs.max_papers // max(len(state.domains), 1))
         all_raw: list[Paper] = []
         retrieval_log: dict[str, dict[str, int]] = {}
 
         for domain in state.domains:
             query = _domain_query(state.inputs.topic, domain)
-            variants = query_variants(state.inputs.topic, domain.name, domain.search_terms)
+            variants = query_variants(
+                state.inputs.topic,
+                domain.name,
+                domain.search_terms + state.inputs.prefer_terms,
+            )
             state.domain_queries[domain.index] = query
             domain_raw: list[Paper] = []
             source_counts: dict[str, int] = {}
@@ -243,7 +268,7 @@ class DomainResearchAgent:
 
             deduped = dedupe_papers(domain_raw)
             for paper in deduped:
-                paper.relevance_score = _score_paper(paper, state.plan, domain)
+                paper.relevance_score = _score_paper(paper, state.plan, domain, state.inputs)
             deduped.sort(key=lambda p: p.relevance_score, reverse=True)
             trimmed = deduped[:per_domain_budget]
             state.domain_papers[domain.index] = trimmed
@@ -252,7 +277,7 @@ class DomainResearchAgent:
 
         merged = dedupe_papers(all_raw)
         for paper in merged:
-            paper.relevance_score = _score_paper(paper, state.plan, None)
+            paper.relevance_score = _score_paper(paper, state.plan, None, state.inputs)
         merged.sort(key=lambda p: p.relevance_score, reverse=True)
         state.papers = merged[: state.inputs.max_papers]
         state.log(
@@ -482,7 +507,12 @@ def _domain_query(topic: str, domain: DomainPlan) -> str:
     return query[:220]
 
 
-def _score_paper(paper: Paper, plan: QueryPlan, domain: DomainPlan | None) -> float:
+def _score_paper(
+    paper: Paper,
+    plan: QueryPlan,
+    domain: DomainPlan | None,
+    inputs: RunInputs | None = None,
+) -> float:
     text = f"{paper.title} {(paper.abstract or '')} {' '.join(paper.fields)}".lower()
     keyword_hits = sum(1 for kw in plan.keywords if kw.lower() in text)
     facet_hits = sum(1 for f in plan.facets if any(t in text for t in f.lower().split()))
@@ -493,7 +523,7 @@ def _score_paper(paper: Paper, plan: QueryPlan, domain: DomainPlan | None) -> fl
     cite_score = min((paper.citation_count or 0) / 200.0, 2.0)
     recency_boost = 0.4 if (paper.year and paper.year >= 2018) else 0.0
     coverage_boost = venue_boost(paper.venue)
-    return (
+    base = (
         keyword_hits * 0.9
         + facet_hits * 0.35
         + domain_hits * 0.15
@@ -501,6 +531,47 @@ def _score_paper(paper: Paper, plan: QueryPlan, domain: DomainPlan | None) -> fl
         + recency_boost
         + coverage_boost
     )
+    if not inputs:
+        return base
+    return base + _preference_adjustment(paper, inputs)
+
+
+def _preference_adjustment(paper: Paper, inputs: RunInputs) -> float:
+    strength = max(0.0, min(inputs.soft_restriction_strength, 3.0))
+    if strength <= 0:
+        return 0.0
+    text = f"{paper.title} {paper.abstract or ''} {' '.join(paper.fields)}".lower()
+    venue = (paper.venue or "").lower()
+    source = (paper.source or "").lower()
+
+    score = 0.0
+    for term in inputs.prefer_terms:
+        t = term.lower().strip()
+        if t and t in text:
+            score += 0.22 * strength
+    for term in inputs.avoid_terms:
+        t = term.lower().strip()
+        if t and t in text:
+            score -= 0.35 * strength
+
+    for hint in inputs.prefer_venues:
+        h = hint.lower().strip()
+        if h and h in venue:
+            score += 0.55 * strength
+    for hint in inputs.avoid_venues:
+        h = hint.lower().strip()
+        if h and h in venue:
+            score -= 0.85 * strength
+
+    for pref in inputs.prefer_sources:
+        p = pref.lower().strip()
+        if p and p == source:
+            score += 0.45 * strength
+    for block in inputs.avoid_sources:
+        b = block.lower().strip()
+        if b and b == source:
+            score -= 0.95 * strength
+    return score
 
 
 def _fallback_query_plan(topic: str, description: str, seed_terms: list[str]) -> QueryPlan:

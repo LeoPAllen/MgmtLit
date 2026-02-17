@@ -21,6 +21,7 @@ class EnvConfig:
     claude_command: str
     openalex_email: str | None
     semantic_scholar_api_key: str | None
+    core_api_key: str | None
 
 
 def load_env() -> EnvConfig:
@@ -35,4 +36,5 @@ def load_env() -> EnvConfig:
         claude_command=os.getenv("CLAUDE_CODE_CMD", "claude"),
         openalex_email=os.getenv("OPENALEX_EMAIL"),
         semantic_scholar_api_key=os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+        core_api_key=os.getenv("CORE_API_KEY"),
     )

@@ -38,31 +38,69 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Configure
+## Quickstart (minimal)
 
-Create `.env`:
+1. Set one LLM backend.
+2. Run one review command.
 
 ```bash
+cat > .env << 'EOF'
+LLM_BACKEND=openai
 OPENAI_API_KEY=your_key_here
 OPENAI_MODEL=gpt-5-mini
-GEMINI_API_KEY=your_key_here
-GEMINI_MODEL=gemini-2.0-flash
+EOF
+
+mgmtlit review \
+  "How does algorithmic management affect worker autonomy and performance?" \
+  --description "Focus on platform and hybrid organizations since 2015"
+```
+
+## Configuration
+
+Create `.env` in project root.
+
+### Required
+
+- `LLM_BACKEND`
+  - one of: `openai`, `gemini`, `claude_code`, `none`
+
+### Required by selected backend
+
+- if `LLM_BACKEND=openai`:
+  - `OPENAI_API_KEY`
+  - optional: `OPENAI_MODEL` (default `gpt-5-mini`)
+- if `LLM_BACKEND=gemini`:
+  - `GEMINI_API_KEY`
+  - optional: `GEMINI_MODEL` (default `gemini-2.0-flash`)
+- if `LLM_BACKEND=claude_code`:
+  - Claude Code CLI installed and authenticated
+  - optional: `CLAUDE_CODE_CMD` (default `claude`)
+  - optional: `CLAUDE_MODEL` (default `sonnet`)
+
+### Optional retrieval keys
+
+- `OPENALEX_EMAIL` (recommended, improves OpenAlex compliance)
+- `SEMANTIC_SCHOLAR_API_KEY` (recommended for S2 throughput)
+- `CORE_API_KEY` (only needed for `search-core` and CORE portfolio coverage)
+
+### Full example `.env`
+
+```bash
 LLM_BACKEND=openai
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-5-mini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.0-flash
 CLAUDE_MODEL=sonnet
 CLAUDE_CODE_CMD=claude
 OPENALEX_EMAIL=you@university.edu
-SEMANTIC_SCHOLAR_API_KEY=optional_but_recommended
+SEMANTIC_SCHOLAR_API_KEY=
+CORE_API_KEY=
 ```
 
-Notes:
-- `LLM_BACKEND` can be `openai`, `gemini`, `claude_code`, or `none`.
-- `OPENAI_API_KEY` is only required when `LLM_BACKEND=openai`.
-- `GEMINI_API_KEY` is only required when `LLM_BACKEND=gemini`.
-- For `LLM_BACKEND=claude_code`, install/configure the Claude Code CLI and optionally override `CLAUDE_CODE_CMD`.
-- `OPENALEX_EMAIL` is optional but recommended by OpenAlex for polite pool usage.
-- Default behavior is fail-fast if both planner and synthesis fall back from LLM (`--fail-on-llm-fallback true`), to avoid silently producing low-quality output.
+## Main Command: `review`
 
-## Usage
+### Standard run
 
 ```bash
 mgmtlit review \
@@ -70,10 +108,43 @@ mgmtlit review \
   --description "Focus on platforms, frontline work, and hybrid organizations since 2015" \
   --max-papers 80 \
   --backend openai \
-  --fail-on-llm-fallback true \
-  --resume true \
+  --fail-on-llm-fallback \
+  --resume \
   --output-dir reviews
 ```
+
+### Soft epistemic steering (optional)
+
+Use these when you want to nudge results toward your scholarly context without hard-filtering:
+
+- `--prefer-term` / `--avoid-term`
+- `--prefer-venue` / `--avoid-venue`
+- `--prefer-source` / `--avoid-source`
+- `--soft-restriction-strength` in `[0.0, 3.0]`
+  - `0.0`: off
+  - `1.0`: default soft steering
+  - `2.0+`: stronger steering
+
+```bash
+mgmtlit review \
+  "Algorithmic management and worker outcomes" \
+  --backend openai \
+  --prefer-term "field experiment" \
+  --prefer-venue "Management Science" \
+  --avoid-venue "medical" \
+  --avoid-source arxiv \
+  --soft-restriction-strength 1.2 \
+  --max-papers 80
+```
+
+Supported source names for soft steering:
+- `openalex`
+- `semantic_scholar`
+- `crossref`
+- `core`
+- `arxiv`
+- `ssrn`
+- `repec`
 
 PhilLit-style postprocessing commands:
 
@@ -95,7 +166,9 @@ mgmtlit generate-bibliography \
 
 `generate-bibliography` appends or replaces `## References` in **APA style** based on in-text citations.
 
-Cross-provider agent-pack scaffold (PhilLit-style role decomposition):
+## Agent Pack Scaffold (optional)
+
+Generate provider-specific agent files and hooks:
 
 ```bash
 mgmtlit scaffold-agents --root .
@@ -108,14 +181,27 @@ This generates:
 - `.gemini/agents/*.md` plus `.gemini/GEMINI.md`
 - `agentic/ARCHITECTURE.md`, `agentic/conventions.md`, `agentic/manifest.json`
 
-Use `--overwrite false` to preserve existing files.
+Use `--no-overwrite` to preserve existing files.
 
-Structured research utilities (PhilLit-style script equivalents):
+## Boolean Flags (Important)
+
+This CLI uses Typer boolean toggles. Do not pass `true`/`false` values.
+
+- use `--resume` or `--no-resume`
+- use `--fail-on-llm-fallback` or `--no-fail-on-llm-fallback`
+- use `--overwrite` or `--no-overwrite`
+
+## Research Utilities (optional)
+
+Use these for targeted retrieval or debugging source coverage:
 
 ```bash
 mgmtlit search-openalex "algorithmic management" --from-year 2018 --out oa.json
 mgmtlit search-s2 "algorithmic management" --out s2.json
 mgmtlit search-crossref "algorithmic management" --out cr.json
+mgmtlit search-core "algorithmic management" --out core.json
+mgmtlit search-ssrn "algorithmic management" --out ssrn.json
+mgmtlit search-repec "algorithmic management" --out repec.json
 mgmtlit search-portfolio "algorithmic management and worker outcomes" \
   --description "management, org science, economics, IS, and OM coverage" --out portfolio.json
 mgmtlit verify-paper --doi 10.1177/0001839220977791 --out verify.json
@@ -124,13 +210,15 @@ mgmtlit s2-recommend PAPER_ID_1 PAPER_ID_2 --out recs.json
 mgmtlit enrich-bibliography reviews/topic/intermediate_files/literature-domain-1.bib
 ```
 
+`--out` is optional for search commands. If omitted, JSON is printed to stdout.
+
 Provider-native orchestration engines are selected automatically by `--backend`:
 - `openai` -> OpenAI-native orchestrator
 - `gemini` -> Gemini-native orchestrator
 - `claude_code` -> Claude-native orchestrator
 - `none` -> deterministic orchestrator
 
-Optional filters:
+## Additional Run Examples
 
 ```bash
 mgmtlit review "IT ambidexterity and digital transformation" \
@@ -166,7 +254,7 @@ You can add custom include terms via `--include-term`.
 ## Suggested workflow for scholars
 
 1. Run once with broad settings and inspect `papers.json`.
-2. Re-run with tighter include terms and date windows.
+2. Re-run with tighter terms/date windows and optional soft steering.
 3. Manually verify key papers before submission-quality writing.
 4. Use `review.md` as a first draft, not a final manuscript.
 

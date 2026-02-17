@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.mgmtlit_cache/
 
 # Packaging/build artifacts
 build/

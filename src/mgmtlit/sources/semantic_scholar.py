@@ -4,6 +4,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from mgmtlit.models import Paper
+from mgmtlit.net import cached_get_json
 from mgmtlit.sources.base import PaperSource
 
 
@@ -19,13 +20,14 @@ class SemanticScholarSource(PaperSource):
         headers = {}
         if self.api_key:
             headers["x-api-key"] = self.api_key
-        resp = self.client.get(
+        return cached_get_json(
+            self.client,
             "https://api.semanticscholar.org/graph/v1/paper/search",
             params=params,
             headers=headers,
+            ttl_seconds=2 * 60 * 60,
+            min_interval_sec=0.35,
         )
-        resp.raise_for_status()
-        return resp.json()
 
     def search(
         self,
