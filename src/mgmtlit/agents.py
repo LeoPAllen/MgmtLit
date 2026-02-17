@@ -5,6 +5,7 @@ from datetime import date
 import re
 from typing import Any
 
+from mgmtlit.domain_profiles import coverage_anchor_terms, query_variants, venue_boost
 from mgmtlit.llm import LLMBackend
 from mgmtlit.models import Paper, QueryPlan
 from mgmtlit.utils import dedupe_papers
@@ -133,7 +134,8 @@ class PlannerAgent:
         fallback_plan = _fallback_query_plan(state.inputs.topic, state.inputs.description, seed_terms)
         fallback_domains = _fallback_domains(fallback_plan)
         try:
-            response = backend.ask_json(
+            response = backend.ask_agent_json(
+                self.name,
                 {
                     "task": "Create a management literature review plan with explicit domains.",
                     "topic": state.inputs.topic,
@@ -198,37 +200,44 @@ class DomainResearchAgent:
         del backend
         if state.plan is None or not state.domains:
             raise RuntimeError("Planner must run before domain research.")
-        from mgmtlit.sources import CrossrefSource, OpenAlexSource, SemanticScholarSource
+        from mgmtlit.sources import ArxivSource, CrossrefSource, OpenAlexSource, SemanticScholarSource
 
         sources = [
             OpenAlexSource(email=state.inputs.openalex_email),
             CrossrefSource(),
             SemanticScholarSource(api_key=state.inputs.semantic_scholar_api_key),
+            ArxivSource(),
         ]
-        topic_terms = _topic_anchor_terms(state.inputs.topic, state.inputs.description, state.plan.keywords)
+        topic_terms = coverage_anchor_terms(
+            state.inputs.topic, state.inputs.description, state.plan.keywords
+        )
         per_domain_budget = max(15, state.inputs.max_papers // max(len(state.domains), 1))
         all_raw: list[Paper] = []
         retrieval_log: dict[str, dict[str, int]] = {}
 
         for domain in state.domains:
             query = _domain_query(state.inputs.topic, domain)
+            variants = query_variants(state.inputs.topic, domain.name, domain.search_terms)
             state.domain_queries[domain.index] = query
             domain_raw: list[Paper] = []
             source_counts: dict[str, int] = {}
             for source in sources:
                 try:
-                    papers = source.search(
-                        query,
-                        from_year=state.inputs.from_year,
-                        to_year=state.inputs.to_year,
-                        max_results=per_domain_budget,
-                    )
-                    cleaned = [_sanitize_paper(p) for p in papers]
-                    cleaned = [p for p in cleaned if _looks_sane_paper(p)]
-                    topical = [p for p in cleaned if _looks_topic_relevant(p, topic_terms)]
-                    cleaned = topical if len(topical) >= max(5, len(cleaned) // 3) else cleaned
-                    domain_raw.extend(cleaned)
-                    source_counts[source.name] = len(papers)
+                    total = 0
+                    for variant in variants[:5]:
+                        papers = source.search(
+                            variant,
+                            from_year=state.inputs.from_year,
+                            to_year=state.inputs.to_year,
+                            max_results=max(8, per_domain_budget // 2),
+                        )
+                        cleaned = [_sanitize_paper(p) for p in papers]
+                        cleaned = [p for p in cleaned if _looks_sane_paper(p)]
+                        topical = [p for p in cleaned if _looks_topic_relevant(p, topic_terms)]
+                        cleaned = topical if len(topical) >= max(4, len(cleaned) // 3) else cleaned
+                        domain_raw.extend(cleaned)
+                        total += len(papers)
+                    source_counts[source.name] = total
                 except Exception:
                     source_counts[source.name] = 0
 
@@ -273,7 +282,8 @@ class SynthesisPlannerAgent:
                 }
                 for d in state.domains
             ]
-            response = backend.ask_json(
+            response = backend.ask_agent_json(
+                self.name,
                 {
                     "task": "Create a synthesis outline for a management literature review.",
                     "topic": state.plan.topic,
@@ -354,7 +364,8 @@ class SynthesisWriterAgent:
                     }
                     for p in selected[:30]
                 ]
-                text = backend.ask_text(
+                text = backend.ask_agent_text(
+                    self.name,
                     {
                         "task": "Write one section of an academic literature review.",
                         "topic": state.plan.topic,
@@ -481,7 +492,15 @@ def _score_paper(paper: Paper, plan: QueryPlan, domain: DomainPlan | None) -> fl
         domain_hits = sum(1 for tok in domain_tokens[:25] if tok and tok in text)
     cite_score = min((paper.citation_count or 0) / 200.0, 2.0)
     recency_boost = 0.4 if (paper.year and paper.year >= 2018) else 0.0
-    return keyword_hits * 0.9 + facet_hits * 0.35 + domain_hits * 0.15 + cite_score + recency_boost
+    coverage_boost = venue_boost(paper.venue)
+    return (
+        keyword_hits * 0.9
+        + facet_hits * 0.35
+        + domain_hits * 0.15
+        + cite_score
+        + recency_boost
+        + coverage_boost
+    )
 
 
 def _fallback_query_plan(topic: str, description: str, seed_terms: list[str]) -> QueryPlan:

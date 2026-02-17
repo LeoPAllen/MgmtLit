@@ -5,13 +5,10 @@ from pathlib import Path
 
 from mgmtlit.agents import (
     AgentState,
-    DomainResearchAgent,
-    PlannerAgent,
     RunInputs,
-    SynthesisPlannerAgent,
-    SynthesisWriterAgent,
 )
 from mgmtlit.llm import create_backend
+from mgmtlit.orchestration import create_orchestration_engine
 from mgmtlit.utils import (
     dump_json,
     ensure_dir,
@@ -88,6 +85,7 @@ def run_review(config: RunConfig) -> Path:
             semantic_scholar_api_key=config.semantic_scholar_api_key,
         )
     )
+    engine = create_orchestration_engine(config.llm_backend)
 
     completed: list[str] = []
     current = PHASES[0]
@@ -110,7 +108,7 @@ def run_review(config: RunConfig) -> Path:
     current = PHASES[1]
     _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Environment checks passed.")
 
-    PlannerAgent().run(state, backend)
+    engine.run_planner(state, backend)
     if state.plan is None:
         raise RuntimeError("Pipeline failed: planner did not produce a query plan.")
     dump_json(review_dir / "plan.json", state.plan.as_dict())
@@ -122,7 +120,7 @@ def run_review(config: RunConfig) -> Path:
     current = PHASES[2]
     _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Domain plan generated.")
 
-    DomainResearchAgent().run(state, backend)
+    engine.run_domain_research(state, backend)
     for domain in state.domains:
         papers = state.domain_papers.get(domain.index, [])
         bib_name = f"literature-domain-{domain.index}.bib"
@@ -137,7 +135,7 @@ def run_review(config: RunConfig) -> Path:
     current = PHASES[3]
     _write_progress(intermediate_dir / "task-progress.md", config.topic, completed, current, "Domain research complete.")
 
-    SynthesisPlannerAgent().run(state, backend)
+    engine.run_synthesis_planner(state, backend)
     if state.outline is None:
         raise RuntimeError("Pipeline failed: synthesis planner did not produce an outline.")
     dump_json(intermediate_dir / "synthesis-outline.json", state.outline.as_dict())
@@ -158,7 +156,7 @@ def run_review(config: RunConfig) -> Path:
                 "Fix API key/quota or rerun with --fail-on-llm-fallback false to allow deterministic fallback."
             )
 
-    SynthesisWriterAgent().run(state, backend)
+    engine.run_synthesis_writer(state, backend)
     for section in state.outline.sections:
         text = state.section_text.get(section.index, "").strip()
         if not text:

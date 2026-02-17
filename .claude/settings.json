@@ -1,0 +1,65 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(dd *)",
+      "Bash(mkfs *)"
+    ],
+    "allow": [
+      "Read",
+      "Write(reviews/**)",
+      "Edit(reviews/**)",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pytest *)",
+      "Bash(find *)",
+      "Bash(mkdir *)",
+      "Skill(literature-review)",
+      "Skill(management-research)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "Bash(rmdir *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/setup-environment.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.venv/bin/python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_bib_write.py 2>/dev/null || python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_bib_write.py 2>/dev/null || echo '{\"hookSpecificOutput\": {}}'"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent_stop_bib.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

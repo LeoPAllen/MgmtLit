@@ -6,7 +6,19 @@ import typer
 from rich.console import Console
 
 from mgmtlit.config import load_env
+from mgmtlit.agent_pack import scaffold_agent_pack
 from mgmtlit.pipeline import RunConfig, run_review
+from mgmtlit.research_tools import (
+    enrich_bibliography,
+    s2_citations,
+    s2_recommend,
+    search_crossref,
+    search_openalex,
+    search_portfolio,
+    search_semantic_scholar,
+    verify_paper,
+    write_json,
+)
 from mgmtlit.postprocess import (
     assemble_review,
     dedupe_bib,
@@ -109,6 +121,145 @@ def generate_bibliography_cmd(
     console.print(
         f"[bold green]Updated[/bold green] references in {review_file} "
         f"(matched {stats['matched']}/{stats['total']} entries)"
+    )
+
+
+@app.command("scaffold-agents")
+def scaffold_agents_cmd(
+    root: Path = typer.Option(Path("."), help="Project root where provider folders are generated"),
+    overwrite: bool = typer.Option(
+        True, help="Overwrite existing agent-pack files if they already exist"
+    ),
+) -> None:
+    written = scaffold_agent_pack(root.resolve(), overwrite=overwrite)
+    console.print(f"[bold green]Agent pack ready[/bold green] ({len(written)} files updated)")
+    for path in written:
+        console.print(f"- {path}")
+
+
+@app.command("search-openalex")
+def search_openalex_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=200),
+) -> None:
+    env = load_env()
+    payload = search_openalex(
+        query, email=env.openalex_email, from_year=from_year, to_year=to_year, limit=limit
+    )
+    write_json(out, payload)
+
+
+@app.command("search-s2")
+def search_s2_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=100),
+) -> None:
+    env = load_env()
+    payload = search_semantic_scholar(
+        query,
+        api_key=env.semantic_scholar_api_key,
+        from_year=from_year,
+        to_year=to_year,
+        limit=limit,
+    )
+    write_json(out, payload)
+
+
+@app.command("search-crossref")
+def search_crossref_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(25, min=1, max=100),
+) -> None:
+    payload = search_crossref(query, from_year=from_year, to_year=to_year, limit=limit)
+    write_json(out, payload)
+
+
+@app.command("search-portfolio")
+def search_portfolio_cmd(
+    topic: str = typer.Argument(..., help="Main research topic"),
+    description: str = typer.Option("", help="Optional scope/context"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    from_year: int | None = typer.Option(None),
+    to_year: int | None = typer.Option(None),
+    limit: int = typer.Option(80, min=20, max=300),
+) -> None:
+    env = load_env()
+    payload = search_portfolio(
+        topic,
+        description=description,
+        openalex_email=env.openalex_email,
+        s2_api_key=env.semantic_scholar_api_key,
+        from_year=from_year,
+        to_year=to_year,
+        limit=limit,
+    )
+    write_json(out, payload)
+
+
+@app.command("verify-paper")
+def verify_paper_cmd(
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    doi: str | None = typer.Option(None, help="DOI to verify"),
+    title: str | None = typer.Option(None, help="Title query fallback"),
+    author: str | None = typer.Option(None, help="Author query fallback"),
+    year: int | None = typer.Option(None, help="Year query fallback"),
+) -> None:
+    payload = verify_paper(doi=doi, title=title, author=author, year=year)
+    write_json(out, payload)
+
+
+@app.command("s2-citations")
+def s2_citations_cmd(
+    paper_id: str = typer.Argument(..., help="Semantic Scholar paper id or DOI:..."),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    mode: str = typer.Option("both", help="both | references | citations"),
+    influential_only: bool = typer.Option(False, help="Only influential citation edges"),
+    limit: int = typer.Option(50, min=1, max=500),
+) -> None:
+    env = load_env()
+    payload = s2_citations(
+        paper_id,
+        api_key=env.semantic_scholar_api_key,
+        mode=mode,
+        influential_only=influential_only,
+        limit=limit,
+    )
+    write_json(out, payload)
+
+
+@app.command("s2-recommend")
+def s2_recommend_cmd(
+    positive_ids: list[str] = typer.Argument(..., help="Seed paper IDs"),
+    out: Path | None = typer.Option(None, help="Optional JSON output path"),
+    limit: int = typer.Option(20, min=1, max=200),
+) -> None:
+    env = load_env()
+    payload = s2_recommend(positive_ids, api_key=env.semantic_scholar_api_key, limit=limit)
+    write_json(out, payload)
+
+
+@app.command("enrich-bibliography")
+def enrich_bibliography_cmd(
+    bib_file: Path = typer.Argument(..., help="BibTeX file to enrich in-place"),
+) -> None:
+    env = load_env()
+    stats = enrich_bibliography(
+        bib_file,
+        openalex_email=env.openalex_email,
+        s2_api_key=env.semantic_scholar_api_key,
+    )
+    console.print(
+        f"[bold green]Enriched[/bold green] {bib_file} "
+        f"(entries={stats['entries']}, abstracts={stats['enriched']}, incomplete={stats['incomplete']})"
     )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -25,6 +26,14 @@ class LLMBackend(ABC):
         text = self.ask_text(payload)
         return _coerce_json(text)
 
+    def ask_agent_text(self, agent_name: str, payload: dict[str, Any]) -> str:
+        del agent_name
+        return self.ask_text(payload)
+
+    def ask_agent_json(self, agent_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        text = self.ask_agent_text(agent_name, payload)
+        return _coerce_json(text)
+
 
 class OpenAIBackend(LLMBackend):
     name = "openai"
@@ -38,10 +47,17 @@ class OpenAIBackend(LLMBackend):
         self.model = model
 
     def ask_text(self, payload: dict[str, Any]) -> str:
+        return self._ask(payload, None)
+
+    def ask_agent_text(self, agent_name: str, payload: dict[str, Any]) -> str:
+        return self._ask(payload, _load_agent_prompt("openai", agent_name))
+
+    def _ask(self, payload: dict[str, Any], agent_prompt: str | None) -> str:
+        system = SYSTEM_PROMPT if not agent_prompt else f"{SYSTEM_PROMPT}\n\n{agent_prompt}"
         response = self.client.responses.create(
             model=self.model,
             input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
             ],
         )
@@ -56,9 +72,17 @@ class ClaudeCodeBackend(LLMBackend):
         self.model = model
 
     def ask_text(self, payload: dict[str, Any]) -> str:
+        return self._ask(payload, None)
+
+    def ask_agent_text(self, agent_name: str, payload: dict[str, Any]) -> str:
+        return self._ask(payload, _load_agent_prompt("claude", agent_name))
+
+    def _ask(self, payload: dict[str, Any], agent_prompt: str | None) -> str:
+        extra = agent_prompt or ""
         prompt = "\n\n".join(
             [
                 SYSTEM_PROMPT,
+                extra,
                 "Return valid JSON only when the task asks for JSON.",
                 json.dumps(payload, ensure_ascii=True),
             ]
@@ -93,9 +117,16 @@ class GeminiBackend(LLMBackend):
         self.retry_backoff_sec = max(retry_backoff_sec, 0.0)
 
     def ask_text(self, payload: dict[str, Any]) -> str:
+        return self._ask(payload, None)
+
+    def ask_agent_text(self, agent_name: str, payload: dict[str, Any]) -> str:
+        return self._ask(payload, _load_agent_prompt("gemini", agent_name))
+
+    def _ask(self, payload: dict[str, Any], agent_prompt: str | None) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        system = SYSTEM_PROMPT if not agent_prompt else f"{SYSTEM_PROMPT}\n\n{agent_prompt}"
         body = {
-            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "systemInstruction": {"parts": [{"text": system}]},
             "contents": [
                 {
                     "role": "user",
@@ -217,3 +248,17 @@ def _format_gemini_http_error(exc: httpx.HTTPStatusError) -> str:
         if isinstance(error_message, str) and error_message.strip():
             message += f" Details: {error_message.strip()}"
     return message
+
+
+def _load_agent_prompt(provider: str, agent_name: str) -> str | None:
+    mapping = {"openai": ".openai", "gemini": ".gemini", "claude": ".claude"}
+    folder = mapping.get(provider)
+    if not folder:
+        return None
+    path = Path.cwd() / folder / "agents" / f"{agent_name}.md"
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return None

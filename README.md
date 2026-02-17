@@ -95,6 +95,41 @@ mgmtlit generate-bibliography \
 
 `generate-bibliography` appends or replaces `## References` in **APA style** based on in-text citations.
 
+Cross-provider agent-pack scaffold (PhilLit-style role decomposition):
+
+```bash
+mgmtlit scaffold-agents --root .
+```
+
+This generates:
+- `.claude/agents/*.md` plus `.claude/docs/` and `.claude/settings.json`
+- `.claude/hooks/` validators (`bib_validator.py`, `metadata_validator.py`, `metadata_cleaner.py`, `validate_bib_write.py`, `subagent_stop_bib.sh`)
+- `.openai/agents/*.md` plus `.openai/AGENTS.md`
+- `.gemini/agents/*.md` plus `.gemini/GEMINI.md`
+- `agentic/ARCHITECTURE.md`, `agentic/conventions.md`, `agentic/manifest.json`
+
+Use `--overwrite false` to preserve existing files.
+
+Structured research utilities (PhilLit-style script equivalents):
+
+```bash
+mgmtlit search-openalex "algorithmic management" --from-year 2018 --out oa.json
+mgmtlit search-s2 "algorithmic management" --out s2.json
+mgmtlit search-crossref "algorithmic management" --out cr.json
+mgmtlit search-portfolio "algorithmic management and worker outcomes" \
+  --description "management, org science, economics, IS, and OM coverage" --out portfolio.json
+mgmtlit verify-paper --doi 10.1177/0001839220977791 --out verify.json
+mgmtlit s2-citations DOI:10.1177/0001839220977791 --mode both --out cites.json
+mgmtlit s2-recommend PAPER_ID_1 PAPER_ID_2 --out recs.json
+mgmtlit enrich-bibliography reviews/topic/intermediate_files/literature-domain-1.bib
+```
+
+Provider-native orchestration engines are selected automatically by `--backend`:
+- `openai` -> OpenAI-native orchestrator
+- `gemini` -> Gemini-native orchestrator
+- `claude_code` -> Claude-native orchestrator
+- `none` -> deterministic orchestrator
+
 Optional filters:
 
 ```bash
