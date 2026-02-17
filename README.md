@@ -2,6 +2,12 @@
 
 `mgmtlit` is an AI-assisted literature review builder for scholars in management, organizations, and information systems. It is inspired by PhilLit's pipeline design, adapted for business school research domains.
 
+## Informal notes from the developer:
+
+- This tool is an almost purely vibe-coded work in progress.
+- There are serious ethical and practical considerations related to its use.
+- If you happen to use it, please use it respponsibly and share feedback :) 
+
 ## What it does
 
 Given a research question, `mgmtlit` now runs a PhilLit-style 6-phase workflow:
