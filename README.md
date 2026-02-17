@@ -6,7 +6,7 @@
 
 - This tool is an almost purely vibe-coded work in progress.
 - There are serious ethical and practical considerations related to its use.
-- If you happen to use it, please use it respponsibly and share feedback :) 
+- If you happen to use it, please use it responsibly and feel free to share feedback :) 
 
 ## What it does
 
