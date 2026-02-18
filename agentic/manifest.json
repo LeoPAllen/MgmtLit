@@ -3,7 +3,7 @@
   "agents": [
     {
       "name": "literature-review-planner",
-      "description": "Decomposes management research questions into domains, key questions, and evidence-oriented search strategies.",
+      "description": "Plans rigorous management scholarship literature reviews by decomposing topics into domains, critical questions, and source-aware search strategies.",
       "tools": [
         "Read",
         "Write"
@@ -12,19 +12,21 @@
     },
     {
       "name": "domain-literature-researcher",
-      "description": "Runs domain-scoped evidence retrieval and produces valid BibTeX with metadata-rich annotations.",
+      "description": "Executes domain-scoped, source-structured retrieval and builds valid BibTeX with provenance-safe metadata and synthesis-ready annotations.",
       "tools": [
         "Read",
         "Write",
         "Bash",
         "Glob",
-        "Grep"
+        "Grep",
+        "WebFetch",
+        "WebSearch"
       ],
       "model": "balanced"
     },
     {
       "name": "synthesis-planner",
-      "description": "Designs a tight synthesis outline from domain BibTeX files with section targets and citation allocation.",
+      "description": "Designs an argument-driven synthesis outline from domain BibTeX files with section architecture, citation allocation, and unresolved-tension mapping.",
       "tools": [
         "Read",
         "Write",
@@ -35,7 +37,7 @@
     },
     {
       "name": "synthesis-writer",
-      "description": "Writes section-level synthesis drafts from outline and BibTeX data using analytical, citation-grounded prose.",
+      "description": "Writes section-level literature synthesis from outline and BibTeX evidence using analytical, citation-grounded, management-scholarship prose.",
       "tools": [
         "Read",
         "Write",
