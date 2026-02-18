@@ -10,7 +10,7 @@
 
 ## What it does
 
-Given a research question, `mgmtlit` now runs a PhilLit-style 6-phase workflow:
+Given a research question, `mgmtlit` now runs 6-phase workflow:
 
 1. Verify run state and initialize progress tracking.
 2. Decompose the topic into domains (`literature-review-planner`).
@@ -152,7 +152,7 @@ Supported source names for soft steering:
 - `ssrn`
 - `repec`
 
-PhilLit-style postprocessing commands:
+Postprocessing commands:
 
 ```bash
 mgmtlit assemble reviews/topic/literature-review-final.md \
@@ -263,10 +263,6 @@ You can add custom include terms via `--include-term`.
 2. Re-run with tighter terms/date windows and optional soft steering.
 3. Manually verify key papers before submission-quality writing.
 4. Use `review.md` as a first draft, not a final manuscript.
-
-## Why this is "similar" to PhilLit
-
-PhilLit's architecture emphasizes decomposition, retrieval, evidence tracking, and synthesis. `mgmtlit` preserves that end-to-end shape but reorients topic lexicons, search heuristics, and section templates toward management scholarship.
 
 ## Development
 
